@@ -1,0 +1,123 @@
+# ==============================================================================
+# Git Ignore Configuration for Multimodal Class Imbalance
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Raw Datasets, Media & Archives (NEVER COMMIT)
+# ------------------------------------------------------------------------------
+MELD.Raw/
+data/
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.wav
+*.mp3
+*.flac
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+
+# ------------------------------------------------------------------------------
+# 2. Large Precomputed Unimodal Embeddings
+# ------------------------------------------------------------------------------
+embeddings/
+embeddings_v2/
+embeddings_v3/
+
+# ------------------------------------------------------------------------------
+# 3. Intermediate Experiment Logs & Output Caches
+# ------------------------------------------------------------------------------
+results_rcs/
+results_fusion/
+results_fusion_contrastive/
+results_text_probe/
+results_v3/
+fusionmethod_experiment/
+
+# ------------------------------------------------------------------------------
+# 4. Third-Party Vendor Reference Checkouts
+# ------------------------------------------------------------------------------
+DeepSMOTE-main/
+GAMO-master/
+RCS-main/
+
+# ------------------------------------------------------------------------------
+# 5. Temporary & Scratch Scripts (Historical Milestones)
+# ------------------------------------------------------------------------------
+apply_video_pooling_fix.py
+test_cls_vs_mean_pooling_probe.py
+run_comparison_experiment.py
+run_experiment2_all_methods.py
+run_step2_baselines.py
+run_extraction.py
+run_rcs_optimization.py
+rcs_latent.py
+rcs_train_eval.py
+train_fusion.py
+generate_final_report.py
+plot_all_fusion_experiments.py
+plot_fusion_tsne.py
+*.bak
+
+# ------------------------------------------------------------------------------
+# 6. Python, Environment & IDE Artifacts
+# ------------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.pytest_cache.zip
+.coverage
+htmlcov/
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.log
+
+# ------------------------------------------------------------------------------
+# 7. Model Checkpoints & Large Binaries (Ignore all except verified package)
+# ------------------------------------------------------------------------------
+*.pt
+*.pth
+*.bin
+*.npz
+
+# ------------------------------------------------------------------------------
+# 8. Whitelist: Required Package Artifacts & Model Bundle
+# ------------------------------------------------------------------------------
+!final_rcs_package/latents/best_fusion_v2_model.pt
+!final_rcs_package/latents/latents_train.npz
+!final_rcs_package/latents/latents_val.npz
+!final_rcs_package/latents/latents_test.npz
+!final_model_bundle.pkl
+!final_rcs_package/final_model_bundle.pkl
+!final_rcs_package/results/*
