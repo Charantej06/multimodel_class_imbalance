@@ -5,12 +5,13 @@ Modality- and class-count-agnostic Latent RCS Rebalancing Engine for Multimodal 
 
 Formulation (RCS-Optimal):
   1. Subspace PCA Projection (D -> pca_dim) to eliminate the curse of dimensionality.
-     Clamps pca_dim to min(pca_dim, smallest_train_class / 4) with a logged warning if clamped.
+     Clamps pca_dim to min(pca_dim, smallest_train_class / 4) with a logged warning if clamped,
+     guarding against empty classes (count 0).
   2. Pass 1: GMM Sub-class Partitioning on majority classes (n_comps = ceil(N/100))
      with regularized diagonal covariance (reg_covar=1e-3) preventing matrix singularity.
   3. Pass 2: Calibrated k-NN (k=5) Gaussian Covariance Generation on minority classes
      using inverse-class weights to anchor synthesis along true decision frontiers.
-  4. Target Capping: Caps synthetic share at 85% of any class (n_syn / (n_real + n_syn) <= 0.85).
+  4. Target Capping: Optional cap on synthetic share (e.g. 85%) of any class (n_syn / (n_real + n_syn) <= share).
   5. Subspace Inversion: Synthetic vectors mapped back to full D space via PCA.
 """
 
@@ -57,10 +58,10 @@ def apply_rcs_optimal(
     pca_dim: int = 64,
     covariance_type: str = "diag",
     target_cap: int = 2500,
-    eta: Optional[int] = None,
+    eta: int = 7,
     k: int = 5,
     seed: int = 42,
-    max_synthetic_share: Optional[float] = 0.85,
+    max_synthetic_share: Optional[float] = None,
 ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
     """
     Applies the winning RCS-Optimal configuration to input latent vectors.
@@ -73,10 +74,10 @@ def apply_rcs_optimal(
     pca_dim : Latent subspace dimension (default 64). Clamped to min(pca_dim, smallest_train_class / 4).
     covariance_type : 'diag' (recommended) or 'full'.
     target_cap : Maximum synthetic sample target per class (default 2500).
-    eta : Imbalance tuner (threshold = target // eta). Defaults to num_classes if None.
+    eta : Imbalance tuner (threshold = target // eta). Default: 7 (MELD default).
     k : Nearest GMM components to calibrate with (default 5).
     seed : Random state seed.
-    max_synthetic_share : Maximum allowed synthetic share in any class (default 0.85 = 85%).
+    max_synthetic_share : Maximum allowed synthetic share in any class (default None for backward compatibility).
 
     Returns
     -------
@@ -92,10 +93,10 @@ def apply_rcs_optimal(
     if label_names is None:
         label_names = [f"class_{i}" for i in range(num_classes)]
 
-    smallest_train_class = int(counts.min())
-
-    # Clamp pca_dim to min(pca_dim, smallest_train_class / 4) with a logged warning
-    if pca_dim is not None:
+    # Guard: only consider non-empty classes (count > 0) when computing smallest class for PCA clamping
+    non_zero_counts = counts[counts > 0]
+    if pca_dim is not None and len(non_zero_counts) > 0:
+        smallest_train_class = int(non_zero_counts.min())
         max_allowed_pca = max(1, int(smallest_train_class / 4))
         if pca_dim > max_allowed_pca:
             logger.warning(
@@ -103,10 +104,6 @@ def apply_rcs_optimal(
                 pca_dim, max_allowed_pca, smallest_train_class,
             )
             pca_dim = max_allowed_pca
-
-    # Dynamic eta default
-    if eta is None:
-        eta = num_classes
 
     target = min(int(counts.max()), target_cap) if target_cap is not None else int(counts.max())
     threshold = target // eta
@@ -141,7 +138,7 @@ def apply_rcs_optimal(
             gm.fit(xclass)
 
             n_need = max(0, target - n_real)
-            # Cap synthetic share at max_synthetic_share (85%)
+            # Cap synthetic share if requested
             if max_synthetic_share is not None and 0.0 < max_synthetic_share < 1.0:
                 max_syn = int(math.floor(n_real * max_synthetic_share / (1.0 - max_synthetic_share)))
                 if n_need > max_syn:
@@ -172,7 +169,6 @@ def apply_rcs_optimal(
             class_samples.extend([n_real] * n_comps)
 
     if len(mean_gauss) == 0:
-        # Fallback if no classes exceeded threshold
         mean_gauss = np.zeros((1, D_work))
         covariance_gauss = np.zeros((1, D_work, D_work))
         class_samples = np.array([1.0])
@@ -191,7 +187,7 @@ def apply_rcs_optimal(
 
         if n_real <= threshold and n_real > 0:
             n_need = max(0, target - n_real)
-            # Cap synthetic share at max_synthetic_share (85%)
+            # Cap synthetic share if requested
             if max_synthetic_share is not None and 0.0 < max_synthetic_share < 1.0:
                 max_syn = int(math.floor(n_real * max_synthetic_share / (1.0 - max_synthetic_share)))
                 if n_need > max_syn:

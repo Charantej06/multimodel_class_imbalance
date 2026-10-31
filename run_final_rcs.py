@@ -8,6 +8,7 @@ Run with:
     python run_final_rcs.py
 """
 
+from __future__ import annotations
 import sys
 import copy
 import math
@@ -16,7 +17,7 @@ import logging
 import argparse
 import json
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -164,8 +165,8 @@ def parse_args():
     parser.add_argument("--latent_dir", type=str, default="final_rcs_package/latents", help="Directory containing latents_{train,val,test}.npz")
     parser.add_argument("--pca_dim", type=int, default=64, help="Subspace PCA dimension (default: 64)")
     parser.add_argument("--target_cap", type=int, default=2500, help="Target sample cap per class (default: 2500)")
-    parser.add_argument("--eta", type=int, default=None, help="Imbalance threshold tuner (default: num_classes)")
-    parser.add_argument("--max_synthetic_share", type=float, default=0.85, help="Cap synthetic share at max share (default: 0.85)")
+    parser.add_argument("--eta", type=int, default=7, help="Imbalance threshold tuner (default: 7)")
+    parser.add_argument("--max_synthetic_share", type=float, default=None, help="Cap synthetic share at max share (default: None for MELD backward compatibility)")
     parser.add_argument("--num_classes", type=int, default=None, help="Number of emotion classes (inferred if None)")
     parser.add_argument("--label_names", nargs="+", default=None, help="List of emotion class names")
     parser.add_argument("--label_map", type=str, default=None, help="Path to label_map.json")
@@ -259,7 +260,7 @@ def main():
             pca_dim=args.pca_dim,
             covariance_type="diag",
             target_cap=args.target_cap,
-            eta=args.eta if args.eta is not None else num_classes,
+            eta=args.eta,
             k=5,
             seed=seed,
             max_synthetic_share=args.max_synthetic_share,

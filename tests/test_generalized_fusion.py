@@ -183,3 +183,28 @@ class TestGeneralizedRCSEngine:
                 share = n_syn / n_after
                 assert share <= 0.85001, f"Class {c} synthetic share {share:.4f} exceeded 85%!"
 
+    def test_rcs_engine_identity_with_package_baseline(self):
+        """Verifies root apply_rcs_optimal matches final_rcs_package/rcs_engine.py exactly with defaults."""
+        from final_rcs_package.rcs_engine import apply_rcs_optimal as pkg_apply_rcs
+
+        latents_path = REPO_ROOT / "final_rcs_package/latents/latents_train.npz"
+        assert latents_path.exists(), f"Latents not found: {latents_path}"
+
+        data = np.load(latents_path)
+        Z_train = data["fused_feat"]
+        y_train = data["labels"]
+
+        Z_b_root, y_b_root, info_root = apply_rcs_optimal(Z_train, y_train, seed=42)
+        Z_b_pkg, y_b_pkg, info_pkg = pkg_apply_rcs(Z_train, y_train, seed=42)
+
+        # 1. Same per-class synthetic counts and totals
+        assert info_root["counts_before"] == info_pkg["counts_before"]
+        assert info_root["counts_after"] == info_pkg["counts_after"]
+
+        # 2. Identical label arrays
+        np.testing.assert_array_equal(y_b_root, y_b_pkg)
+
+        # 3. Identical feature arrays
+        np.testing.assert_allclose(Z_b_root, Z_b_pkg, rtol=1e-5, atol=1e-6)
+
+
