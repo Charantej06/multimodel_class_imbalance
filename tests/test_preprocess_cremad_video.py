@@ -76,3 +76,4 @@ class TestVideoPreprocessingPipeline:
             skip_existing=True,
         )
         assert res["status"] == "cached"
+
