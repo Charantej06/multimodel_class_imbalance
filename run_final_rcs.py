@@ -1,10 +1,11 @@
 """
 run_final_rcs.py
 ================
-Self-contained execution script for the final winning RCS-Optimal multimodal pipeline.
+Execution script for the winning RCS-Optimal multimodal pipeline.
+Generalized for arbitrary class counts, label names, and latent feature directories.
 
 Run with:
-    python final_rcs_package/run_final_rcs.py
+    python run_final_rcs.py
 """
 
 import sys
@@ -12,8 +13,10 @@ import copy
 import math
 import random
 import logging
+import argparse
+import json
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 import numpy as np
 import torch
@@ -30,10 +33,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("run_final_rcs")
 
-LABEL_NAMES = ["neutral", "surprise", "fear", "sadness", "joy", "disgust", "anger"]
-NUM_CLASSES = len(LABEL_NAMES)
-PACKAGE_DIR = Path(__file__).parent.resolve()
-LATENT_DIR = PACKAGE_DIR / "latents"
+DEFAULT_MELD_LABELS = ["neutral", "surprise", "fear", "sadness", "joy", "disgust", "anger"]
+DEFAULT_CREMAD_LABELS = ["anger", "disgust", "fear", "happy", "neutral", "sad"]
 
 
 def set_seed(seed: int):
@@ -56,6 +57,7 @@ class LatentClassifierHead(nn.Module):
     """Unified 2-layer MLP classifier head on 512-d fused representations."""
     def __init__(self, in_dim: int = 512, hidden_dim: int = 256, num_classes: int = 7, dropout: float = 0.3):
         super().__init__()
+        self.num_classes = num_classes
         self.net = nn.Sequential(
             nn.Dropout(dropout),
             nn.Linear(in_dim, hidden_dim),
@@ -77,8 +79,13 @@ def train_eval_head(
     y_te: np.ndarray,
     seed: int,
     device: torch.device,
+    num_classes: int = 7,
+    label_names: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     set_seed(seed)
+
+    if label_names is None:
+        label_names = [f"class_{i}" for i in range(num_classes)]
 
     train_ds = TensorDataset(torch.from_numpy(Z_tr).float(), torch.from_numpy(y_tr).long())
     val_ds = TensorDataset(torch.from_numpy(Z_va).float(), torch.from_numpy(y_va).long())
@@ -88,7 +95,7 @@ def train_eval_head(
     val_loader = DataLoader(val_ds, batch_size=128, shuffle=False)
     test_loader = DataLoader(test_ds, batch_size=128, shuffle=False)
 
-    model = LatentClassifierHead(in_dim=512, hidden_dim=256, num_classes=NUM_CLASSES, dropout=0.3).to(device)
+    model = LatentClassifierHead(in_dim=512, hidden_dim=256, num_classes=num_classes, dropout=0.3).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
     criterion = nn.CrossEntropyLoss()
 
@@ -138,8 +145,8 @@ def train_eval_head(
     macro_f1 = f1_score(te_targets, te_preds, average="macro", zero_division=0)
     acc = accuracy_score(te_targets, te_preds)
     bal_acc = balanced_accuracy_score(te_targets, te_preds)
-    rep = classification_report(te_targets, te_preds, target_names=LABEL_NAMES, output_dict=True, zero_division=0)
-    recalls = [rep[lbl]["recall"] for lbl in LABEL_NAMES]
+    rep = classification_report(te_targets, te_preds, target_names=label_names, output_dict=True, zero_division=0)
+    recalls = [rep[lbl]["recall"] for lbl in label_names]
     gmean = calculate_gmean(recalls)
 
     return {
@@ -148,36 +155,99 @@ def train_eval_head(
         "test_accuracy": float(acc),
         "balanced_accuracy": float(bal_acc),
         "gmean": float(gmean),
-        "recalls": {lbl: rep[lbl]["recall"] for lbl in LABEL_NAMES},
+        "recalls": {lbl: rep[lbl]["recall"] for lbl in label_names},
     }
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Run Final RCS Multimodal Benchmark")
+    parser.add_argument("--latent_dir", type=str, default="final_rcs_package/latents", help="Directory containing latents_{train,val,test}.npz")
+    parser.add_argument("--pca_dim", type=int, default=64, help="Subspace PCA dimension (default: 64)")
+    parser.add_argument("--target_cap", type=int, default=2500, help="Target sample cap per class (default: 2500)")
+    parser.add_argument("--eta", type=int, default=None, help="Imbalance threshold tuner (default: num_classes)")
+    parser.add_argument("--max_synthetic_share", type=float, default=0.85, help="Cap synthetic share at max share (default: 0.85)")
+    parser.add_argument("--num_classes", type=int, default=None, help="Number of emotion classes (inferred if None)")
+    parser.add_argument("--label_names", nargs="+", default=None, help="List of emotion class names")
+    parser.add_argument("--label_map", type=str, default=None, help="Path to label_map.json")
+    parser.add_argument("--seeds", nargs="+", type=int, default=[42, 43, 44], help="Random seeds (default: 42 43 44)")
+    parser.add_argument("--cuda_mem_fraction", type=float, default=0.80, help="CUDA memory fraction (default: 0.80)")
+    return parser.parse_args()
+
+
+def resolve_labels(args, y_tr: np.ndarray, latent_dir: Path) -> Tuple[int, List[str]]:
+    if args.label_map and Path(args.label_map).is_file():
+        with open(args.label_map, "r", encoding="utf-8") as f:
+            lmap = json.load(f)
+        names = sorted(lmap.keys(), key=lambda k: lmap[k])
+        return len(names), names
+
+    candidate_lmaps = [
+        latent_dir / "label_map.json",
+        Path("data/label_map.json"),
+        Path("cremad/label_map.json"),
+    ]
+    for p in candidate_lmaps:
+        if p.is_file() and args.num_classes == 6:
+            with open(p, "r", encoding="utf-8") as f:
+                lmap = json.load(f)
+            names = sorted(lmap.keys(), key=lambda k: lmap[k])
+            return len(names), names
+
+    unique_classes = np.unique(y_tr)
+    n_classes = len(unique_classes)
+
+    if args.label_names and len(args.label_names) == n_classes:
+        return n_classes, list(args.label_names)
+
+    if n_classes == 7:
+        return 7, DEFAULT_MELD_LABELS
+    elif n_classes == 6:
+        return 6, DEFAULT_CREMAD_LABELS
+    else:
+        return n_classes, [f"class_{i}" for i in range(n_classes)]
+
+
 def main():
+    args = parse_args()
+
     if torch.cuda.is_available():
-        torch.cuda.set_per_process_memory_fraction(0.80, device=0)
-        device = torch.device("cuda:0")
-        logger.info("Using GPU: %s (memory fraction 0.80 set)", torch.cuda.get_device_name(0))
+        try:
+            torch.cuda.set_per_process_memory_fraction(args.cuda_mem_fraction, device=0)
+            device = torch.device("cuda:0")
+            logger.info("Using GPU: %s (memory fraction %.2f set)", torch.cuda.get_device_name(0), args.cuda_mem_fraction)
+        except Exception as e:
+            logger.warning("Could not set CUDA memory fraction: %s", e)
+            device = torch.device("cuda:0")
     else:
         device = torch.device("cpu")
         logger.info("Using device: %s", device)
 
-    # 1. Load Precomputed Fusion V2 Latents
-    logger.info("Loading Fusion V2 latents from %s...", LATENT_DIR)
-    tr = np.load(LATENT_DIR / "latents_train.npz")
-    va = np.load(LATENT_DIR / "latents_val.npz")
-    te = np.load(LATENT_DIR / "latents_test.npz")
+    latent_dir = Path(args.latent_dir)
+    logger.info("Loading Fusion V2 latents from %s...", latent_dir)
 
-    Z_tr, y_tr = tr["fused_feat"], tr["labels"]
-    Z_va, y_va = va["fused_feat"], va["labels"]
-    Z_te, y_te = te["fused_feat"], te["labels"]
+    tr = np.load(latent_dir / "latents_train.npz")
+    va = np.load(latent_dir / "latents_val.npz")
+    te = np.load(latent_dir / "latents_test.npz")
+
+    Z_tr = tr["fused_feat"] if "fused_feat" in tr else tr["latents"]
+    y_tr = tr["labels"] if "labels" in tr else tr["y"]
+
+    Z_va = va["fused_feat"] if "fused_feat" in va else va["latents"]
+    y_va = va["labels"] if "labels" in va else va["y"]
+
+    Z_te = te["fused_feat"] if "fused_feat" in te else te["latents"]
+    y_te = te["labels"] if "labels" in te else te["y"]
 
     logger.info("Loaded latents: Train=%s, Val=%s, Test=%s", Z_tr.shape, Z_va.shape, Z_te.shape)
 
-    seeds = [42, 43, 44]
+    num_classes, label_names = resolve_labels(args, y_tr, latent_dir)
+    logger.info("Classes (%d): %s", num_classes, label_names)
+
+    seeds = args.seeds
     seed_runs = []
 
     print("\n" + "=" * 90)
-    print("RUNNING FINAL RCS-OPTIMAL MULTIMODAL BENCHMARK (Seeds: 42, 43, 44)")
+    print(f"RUNNING FINAL RCS-OPTIMAL MULTIMODAL BENCHMARK (Seeds: {seeds})")
     print("=" * 90)
 
     for seed in seeds:
@@ -185,15 +255,16 @@ def main():
         Z_aug, y_aug, info = apply_rcs_optimal(
             Z_train=Z_tr,
             y_train=y_tr,
-            label_names=LABEL_NAMES,
-            pca_dim=64,
+            label_names=label_names,
+            pca_dim=args.pca_dim,
             covariance_type="diag",
-            target_cap=2500,
-            eta=7,
+            target_cap=args.target_cap,
+            eta=args.eta if args.eta is not None else num_classes,
             k=5,
             seed=seed,
+            max_synthetic_share=args.max_synthetic_share,
         )
-        res = train_eval_head(Z_aug, y_aug, Z_va, y_va, Z_te, y_te, seed, device)
+        res = train_eval_head(Z_aug, y_aug, Z_va, y_va, Z_te, y_te, seed, device, num_classes=num_classes, label_names=label_names)
         seed_runs.append(res)
         logger.info(
             "[RCS-Optimal Seed %d] Val Macro-F1: %.4f | Test Macro-F1: %.4f | G-Mean: %.4f | Bal-Acc: %.4f",
@@ -207,7 +278,7 @@ def main():
     gmeans = [r["gmean"] for r in seed_runs]
 
     print("\n" + "=" * 110)
-    print("FINAL RCS-OPTIMAL RESULTS SUMMARY (Mean +- Std over seeds 42, 43, 44)")
+    print(f"FINAL RCS-OPTIMAL RESULTS SUMMARY (Mean +- Std over seeds {seeds})")
     print("=" * 110)
     print(f"  Val Macro-F1:       {np.mean(v_f1s):.4f} +/- {np.std(v_f1s):.4f}")
     print(f"  Test Macro-F1:      {np.mean(t_f1s):.4f} +/- {np.std(t_f1s):.4f}  (Champion #1)")

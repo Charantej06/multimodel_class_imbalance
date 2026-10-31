@@ -6,7 +6,10 @@
 # 1. Raw Datasets, Media & Archives (NEVER COMMIT)
 # ------------------------------------------------------------------------------
 MELD.Raw/
+CREMAD/
+cache/
 data/
+data/features_*
 *.mp4
 *.avi
 *.mov
@@ -20,6 +23,7 @@ data/
 *.tgz
 *.7z
 *.rar
+
 
 # ------------------------------------------------------------------------------
 # 2. Large Precomputed Unimodal Embeddings
