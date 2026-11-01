@@ -7,6 +7,8 @@
 # ------------------------------------------------------------------------------
 MELD.Raw/
 data/
+food_101/
+extract_food101.py
 *.mp4
 *.avi
 *.mov
@@ -41,9 +43,8 @@ fusionmethod_experiment/
 # ------------------------------------------------------------------------------
 # 4. Third-Party Vendor Reference Checkouts
 # ------------------------------------------------------------------------------
-DeepSMOTE-main/
-GAMO-master/
-RCS-main/
+
+
 
 # ------------------------------------------------------------------------------
 # 5. Temporary & Scratch Scripts (Historical Milestones)
@@ -121,3 +122,4 @@ Thumbs.db
 !final_model_bundle.pkl
 !final_rcs_package/final_model_bundle.pkl
 !final_rcs_package/results/*
+!results_rcs/food_101/exp1/*

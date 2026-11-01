@@ -1,76 +1,113 @@
-# Multimodal Emotion Recognition under Extreme Class Imbalance
+Ran delete synthetic latents and invalid exp1 results
+Analyzed run_final_rcs_food_101.py:L70-145
+Edited run_final_rcs_food_101.py
+Edited run_final_rcs_food_101.py
+Ran verify no npz files in food101_lt
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![PyTorch 2.1+](https://img.shields.io/badge/PyTorch-2.1+-ee4c2c.svg)](https://pytorch.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Benchmark](https://img.shields.io/badge/MELD_Macro--F1-0.4092-brightgreen.svg)]()
-[![Balanced Accuracy](https://img.shields.io/badge/Balanced_Accuracy-41.78%25-success.svg)]()
-
-A state-of-the-art framework for **Multimodal Emotion Recognition in Conversation (MERC)** under severe class imbalance, combining:
-1. **Regularized Gated Multimodal Fusion (Fusion V2)** with Decoupled Supervised Contrastive Learning (Decoupled SupCon).
-2. **Optimal Latent Random Covariance Sampling (RCS-Optimal)** using PCA subspace reduction, regularized diagonal GMM partitioning, and calibrated k-NN covariance synthesis.
-
-Tested extensively on the **MELD** benchmark (13,707 video dialogues across 7 emotions with a 17.6:1 imbalance ratio).
+All synthetic files and invalid results have been completely removed:
+* Deleted `data/food101_lt/latents_*.npz`
+* Deleted `results/food_101/exp1/` and `results_rcs/food_101/exp1/`
+* Deleted `benchmark_all_methods_food_101.py`
+* Cleaned [`final_rcs_package/run_final_rcs_food_101.py`](file:///c:/Users/chegu/OneDrive/Desktop/multimodel_class_imbalance/final_rcs_package/run_final_rcs_food_101.py) so it strictly requires real extracted latents.
 
 ---
 
-## 🏆 Key Benchmark Results (MELD Test Set)
+## Complete Parameter Breakdown by Stage & Place
 
-Evaluated strictly across random seeds $\{42, 43, 44\}$ on pure test data:
+Here is the exact mapping of every parameter, its value, and its mathematical purpose at each place in the pipeline:
 
-| Method | Latent Rebalancing | Test Macro-F1 | Balanced Accuracy | Geometric Mean (G-Mean) | Raw Accuracy |
-| :--- | :--- | :---: | :---: | :---: | :---: |
-| **Real Only (Baseline)** | None | $0.3973 \pm 0.0022$ | $38.85 \pm 0.76\%$ | $0.3110 \pm 0.0132$ | **$60.09\%$** |
-| **SMOTE** | Feature Interpolation | $0.3854 \pm 0.0047$ | $40.97 \pm 0.35\%$ | $0.3730 \pm 0.0055$ | $54.34\%$ |
-| **Borderline-SMOTE** | Frontier Interpolation | $0.3861 \pm 0.0039$ | $40.42 \pm 0.41\%$ | $0.3662 \pm 0.0061$ | $55.12\%$ |
-| **DeepSMOTE** | Autoencoder Latents | $0.3842 \pm 0.0041$ | $39.88 \pm 0.50\%$ | $0.3591 \pm 0.0074$ | $56.02\%$ |
-| **GAMO** | Adversarial Over-sampling | $0.4015 \pm 0.0024$ | $40.26 \pm 0.62\%$ | $0.3453 \pm 0.0089$ | $59.18\%$ |
-| **RCS-Optimal (Ours)** | **Subspace PCA-64 + Diag GMM** | **$0.4092 \pm 0.0007$** | **$41.78 \pm 0.76\%$** | **$0.3700 \pm 0.0199$** | $57.89\%$ |
-
-> 🌟 **RCS-Optimal is the undisputed Rank #1 Champion**: Achieves the highest Macro-F1 ($0.4092$), highest Balanced Accuracy ($41.78\%$), and elevates tail minority recall significantly (Fear: $10.7\% \to 26.0\%$, Sadness: $22.6\% \to 34.6\%$).
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ PLACE 1: Pretrained Foundation Encoders (encoders/registry.py)         │
+├────────────────────────────────────────────────────────────────────────┤
+│ • Image Encoder         : facebook/dinov2-base                         │
+│ • Image Output Dim      : 768 (CLS-token embedding)                    │
+│ • Text Encoder          : answerdotai/ModernBERT-base                  │
+│ • Text Output Dim       : 768 (CLS-token embedding)                    │
+│ • Encoder Status        : 100% Frozen (requires_grad = False)          │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ (768-d Image + 768-d Text)
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│ PLACE 2: Multimodal Fusion Model (fusion_model_food_101.py)            │
+├────────────────────────────────────────────────────────────────────────┤
+│ • text_dim              : 768                                          │
+│ • image_dim             : 768                                          │
+│ • hidden_dim            : 512 (Common fused representation space)      │
+│ • num_classes           : 101 (Culinary categories)                    │
+│ • proj_text / proj_image: LayerNorm(768) -> Linear(768, 512) -> Tanh   │
+│ • Gating Mechanism      : Linear(1024, 512) -> ReLU -> Dropout(0.3)    │
+│                           -> Linear(512, 2) (masked softmax logits)    │
+│ • modality_dropout      : 0.15 (drops 1 modality with 15% prob)        │
+│ • classifier_dropout    : 0.30                                         │
+│ • con_proj (SupCon)     : Linear(512, 512) -> ReLU -> Linear(512, 128)│
+│ • con_proj norm         : L2 normalization (p=2)                       │
+│ • SupCon temperature (τ): 0.20 (contrastive sharpness)                 │
+│ • Optimizer             : AdamW (lr = 1e-4, weight_decay = 1e-4)       │
+│ • Max Epochs            : 20 epochs (validation Macro-F1 checkpointing)│
+│ • Fused Output Latent Z : 512-dimensional vector (fused_feat)          │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ (Fused Latents Z ∈ ℝ^512)
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│ PLACE 3: RCS Rebalancing Engine (rcs_engine.py / apply_rcs_optimal)    │
+├────────────────────────────────────────────────────────────────────────┤
+│ • Input Dim (D)         : 512                                          │
+│ • pca_dim (D_work)      : 64 (PCA subspace dimension reduction)        │
+│   ↳ Rationale           : In 512-d, covariance estimation requires     │
+│                           D*(D+1)/2 ≈ 131,328 parameters. With 40      │
+│                           samples, this is singular. PCA to 64-d       │
+│                           resolves the curse of dimensionality.        │
+│ • eta (η)               : 7 (Imbalance tuner parameter)                │
+│ • zeta (ζ)              : 100 (Threshold = n_max // η = 700 // 7)      │
+│ • # Majority Classes    : 68 classes (N_c > 100)                       │
+│ • # Minority Classes    : 33 classes (N_c ≤ 100)                       │
+│ • GMM Components (K_c)  : ⌈N_c / 100⌉ for majority; 1 for minority    │
+│ • Total GMM Components  : 248 components across the 68 majority classes│
+│ • covariance_type       : "diag" (Diagonal Variance)                   │
+│   ↳ What is diagonal?   : Σ = diag(σ₁², σ₂², ..., σ_d²). It only       │
+│                           estimates variances along coordinate axes    │
+│                           and assumes zero off-diagonal covariance.    │
+│                           Reduces parameters from O(D²) to O(D),       │
+│                           preventing matrix collapse and NaN errors.   │
+│ • reg_covar             : 1e-3 (regularization added to diagonal)      │
+│ • eps (PSD Guard)       : 1e-4 (minimum eigenvalue threshold)          │
+│ • k (Nearest Neighbors) : 5 (top-5 closest GMM centroids in 64-d)      │
+│ • γ_j (Neighbor Weight) : 1 / S_j (inverse component sample size)      │
+│ • w_self (Anchor Weight): 1 - ∑(γ_j) (positivity guaranteed: S_j ≥ 50) │
+│ • target_cap            : 700 (upsamples all 101 classes to 700 ceiling│
+│                           → Total balanced training set = 70,700)      │
+│ • Subspace Inversion    : pca.inverse_transform (maps 64-d back to 512)│
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ (Z_balanced ∈ ℝ^(70,700 × 512))
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│ PLACE 4: Downstream Classifier Head (run_final_rcs_food_101.py)        │
+├────────────────────────────────────────────────────────────────────────┤
+│ • Architecture          : LatentClassifierHead                         │
+│                           Dropout(0.3) -> Linear(512, 256) -> GELU()   │
+│                           -> Dropout(0.3) -> Linear(256, 101)          │
+│ • in_dim                : 512                                          │
+│ • hidden_dim            : 256                                          │
+│ • num_classes           : 101                                          │
+│ • Loss Criterion        : nn.CrossEntropyLoss()                        │
+│ • Optimizer             : AdamW                                        │
+│ • Learning Rate (lr)    : 1e-3 (0.001)                                 │
+│ • Weight Decay          : 1e-4 (0.0001)                                │
+│ • Scheduler             : CosineAnnealingLR(optimizer, T_max=epochs)   │
+│ • Max Epochs            : 30 epochs (or 60)                            │
+│ • Early Stopping        : patience = 10 epochs on Validation Macro-F1  │
+│ • Batch Size            : 256                                          │
+│ • GPU Memory Cap        : 70% (set_per_process_memory_fraction(0.70)) │
+│ • Random Seeds          : [42, 43, 44]                                 │
+│ • Evaluation Protocol   : Checked on 5,050 balanced validation samples │
+│                           Evaluated on 25,250 balanced test samples    │
+└────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## 🚀 Quick Start (< 2 Minutes)
-
-### 1. Installation
-```bash
-git clone https://github.com/Charantej06/multimodel_class_imbalance.git
-cd multimodel_class_imbalance
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: .\venv\Scripts\Activate.ps1
-
-# Install requirements
-pip install -r requirements.txt
-```
-
-### 2. Instant Verification of SOTA Results
-Run the championship benchmark directly using the pre-extracted latents:
-```bash
-python run_final_rcs.py
-```
-*or from the self-contained package:*
-```bash
-python final_rcs_package/run_final_rcs.py
-```
-
-### 3. Load Pre-trained Model & Parameters (Pickle Bundle)
-```python
-import pickle
-
-with open("final_model_bundle.pkl", "rb") as f:
-    bundle = pickle.load(f)
-
-print("Optimal RCS Params:", bundle["hyperparameters"]["rcs_optimal"])
-print("Trained Weights:", bundle["model_weights"].keys())
-print("Verified Metrics:", bundle["evaluation_metrics"])
-```
-
----
-
-## 📖 Complete Pipeline & Documentation
+### Key Parameter Definitions & Answers to Your Questions:
 
 - 📋 **[plan.md](plan.md)**: **Step-by-step pipeline execution order** (from raw datasets to final evaluation) and **a detailed guide on how to adapt the pipeline to ANY new multimodal dataset**.
 - 🔬 **[context.md](context.md)**: Full theoretical derivations, multi-task loss formulas, exact hyperparameter tables, and component priority breakdown.
@@ -142,5 +179,24 @@ To apply this pipeline to your own dataset:
 
 ---
 
+## ⚙️ Stage-by-Stage Hyperparameter & Architecture Breakdown
+
+The table below details the exact configuration used across each stage of the pipeline, noting the updated training epochs:
+
+| Stage / Location | Source File | Core Hyperparameters & Architecture | Purpose / Rationale |
+| :--- | :--- | :--- | :--- |
+| **Place 1: Modality Encoders** | [`encoders/registry.py`](encoders/registry.py) | • **Vision:** `facebook/dinov2-base` (768-d, frozen, CLS)<br>• **Text:** `answerdotai/ModernBERT-base` (768-d, frozen, CLS)<br>• **Batch Size:** 32–64, PyTorch CUDA FP32 | Extracts unimodal foundational embeddings from raw images and recipe titles. |
+| **Place 2: Multimodal Fusion V2** | [`food_101_imbalanced_making/train_fusion_food_101.py`](food_101_imbalanced_making/train_fusion_food_101.py) | • **Epochs:** **40** *(increased from 20)*<br>• **Batch Size:** 64<br>• **Optimizer:** AdamW (`lr=1e-3`, `weight_decay=1e-4`)<br>• **LR Schedule:** CosineAnnealingLR (`T_max=40`, `eta_min=1e-6`)<br>• **Loss:** CrossEntropy + 0.5 × Decoupled SupCon ($\tau=0.2, \alpha_{\text{pos}}=1.0, \alpha_{\text{neg}}=1.0$)<br>• **Dropout:** Modality Dropout $p=0.15$, Classifier Dropout $p=0.3$<br>• **Patience:** 10 epochs early stopping | Fuses unimodal representations into a unified 512-d joint representation with contrastive separation across 101 classes. |
+| **Place 3: RCS Latent Engine** | [`final_rcs_package/rcs_engine.py`](final_rcs_package/rcs_engine.py) | • **Subspace Projection:** PCA $512 \to 64$<br>• **GMM Covariance:** `covariance_type="diag"` (avoids $O(D^2)$ singularity)<br>• **Components:** $\eta = 7$<br>• **k-NN Covariance:** $k = 5$<br>• **Target Cap:** 500 (equal to $n_{\max}$)<br>• **Ridge Reg:** `reg_covar = 1e-6` | Balances minority classes up to majority ceiling via regularized, calibrated Gaussian sampling in decorrelated PCA space. |
+| **Place 4: Classifier Head** | [`final_rcs_package/benchmark_all_methods_food_101.py`](final_rcs_package/benchmark_all_methods_food_101.py) | • **Epochs:** **60** *(increased from 30)*<br>• **Architecture:** 2-layer MLP (512 $\to$ 256 $\to$ 101)<br>• **Activation & Reg:** GELU, Dropout $p=0.3$<br>• **Optimizer:** AdamW (`lr=1e-3`, `weight_decay=1e-4`)<br>• **LR Schedule:** CosineAnnealingLR (`T_max=60`, `eta_min=1e-6`)<br>• **Early Stopping:** Patience = 10 on Val Macro-F1 | Evaluates final classification accuracy across rebalancing methods (Real Only, SMOTE, B-SMOTE, DeepSMOTE, GAMO, RCS). |
+
+---
+
 ## 📜 License
 This project is licensed under the MIT License.
+
+
+
+
+
+
