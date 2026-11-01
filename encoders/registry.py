@@ -80,6 +80,13 @@ DEFAULT_CHECKPOINTS: Dict[str, str] = {
     "video": "MCG-NJU/videomae-base",
 }
 
+# Video backbones registry (for CREMA-D video feature extraction)
+VIDEO_BACKBONES: Dict[str, str] = {
+    "dinov2": "facebook/dinov2-base",
+    "videomae_k400": "MCG-NJU/videomae-base-finetuned-kinetics",
+    "videomae": "MCG-NJU/videomae-base",
+}
+
 # Expected CLS / pooled output dimension for each checkpoint
 EMBED_DIMS: Dict[str, int] = {
     "text":  768,
@@ -243,6 +250,8 @@ def load_encoder(
 
     if model_id is None:
         model_id = DEFAULT_CHECKPOINTS[modality]
+    elif modality == "video" and model_id in VIDEO_BACKBONES:
+        model_id = VIDEO_BACKBONES[model_id]
 
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -252,6 +261,51 @@ def load_encoder(
     encoder["model"] = encoder["model"].to(device)
     encoder["device"] = device
     return encoder
+
+
+def load_video_backbone(
+    backbone: str,
+    device: Optional[torch.device] = None,
+) -> Dict[str, Any]:
+    """
+    Load a registered video backbone.
+
+    Supported backbones:
+      - 'dinov2': facebook/dinov2-base
+      - 'videomae_k400': MCG-NJU/videomae-base-finetuned-kinetics
+      - 'videomae': MCG-NJU/videomae-base
+
+    Parameters
+    ----------
+    backbone : str
+        One of 'dinov2', 'videomae_k400', 'videomae'.
+    device : torch.device, optional
+        Target device (defaults to CUDA if available, else CPU).
+
+    Returns
+    -------
+    dict with keys: model, processor, embed_dim, modality, backbone, model_id, device
+    """
+    if backbone not in VIDEO_BACKBONES:
+        raise ValueError(
+            f"Unknown video backbone '{backbone}'. "
+            f"Choose from: {sorted(VIDEO_BACKBONES.keys())}"
+        )
+    model_id = VIDEO_BACKBONES[backbone]
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    if backbone == "dinov2":
+        enc = _load_image_encoder(model_id)
+        enc["modality"] = "video"
+        enc["backbone"] = backbone
+    else:
+        enc = _load_video_encoder(model_id)
+        enc["backbone"] = backbone
+
+    enc["model"] = enc["model"].to(device)
+    enc["device"] = device
+    return enc
 
 
 def load_encoders(

@@ -21,12 +21,14 @@ from encoders.registry import (
     DEFAULT_CHECKPOINTS,
     EMBED_DIMS,
     SUPPORTED_MODALITIES,
+    VIDEO_BACKBONES,
     _freeze,
     _param_count,
     freeze_encoder,
     unfreeze_encoder,
     encoder_info,
     load_encoder,
+    load_video_backbone,
 )
 
 
@@ -78,6 +80,14 @@ class TestConstants:
 
     def test_videomae_checkpoint(self):
         assert DEFAULT_CHECKPOINTS["video"] == "MCG-NJU/videomae-base"
+
+    def test_video_backbones_registered(self):
+        assert "dinov2" in VIDEO_BACKBONES
+        assert "videomae_k400" in VIDEO_BACKBONES
+        assert "videomae" in VIDEO_BACKBONES
+        assert VIDEO_BACKBONES["dinov2"] == "facebook/dinov2-base"
+        assert VIDEO_BACKBONES["videomae_k400"] == "MCG-NJU/videomae-base-finetuned-kinetics"
+        assert VIDEO_BACKBONES["videomae"] == "MCG-NJU/videomae-base"
 
 
 # ---------------------------------------------------------------------------
@@ -163,3 +173,7 @@ class TestLoadEncoderErrors:
     def test_unknown_modality_raises(self):
         with pytest.raises(ValueError, match="Unknown modality"):
             load_encoder("lidar")
+
+    def test_unknown_video_backbone_raises(self):
+        with pytest.raises(ValueError, match="Unknown video backbone"):
+            load_video_backbone("nonexistent_model")
