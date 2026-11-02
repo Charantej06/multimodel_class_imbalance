@@ -1,0 +1,12 @@
+{
+  "lr": 0.002,
+  "weight_decay": 1e-05,
+  "hidden_dim": 256,
+  "dropout": 0.3,
+  "modality_dropout": 0.1,
+  "supcon_weight": 0.2,
+  "supcon_temperature": 0.07,
+  "aux_weight": 0.1,
+  "label_smoothing": 0.1,
+  "batch_size": 256
+}

@@ -56,6 +56,7 @@ class RegularizedGatedMultimodalClassifierV2(nn.Module):
         classifier_dropout: float = 0.3,
         modalities: Optional[List[str]] = None,
         modality_dims: Optional[Dict[str, int]] = None,
+        use_gate: bool = True,
     ):
         super().__init__()
         if modalities is None:
@@ -66,6 +67,8 @@ class RegularizedGatedMultimodalClassifierV2(nn.Module):
         self.num_modalities = len(self.modalities)
         if self.num_modalities < 1:
             raise ValueError("Must provide at least 1 modality.")
+
+        self.use_gate = use_gate
 
         # Resolve modality dimensions
         self.modality_dims: Dict[str, int] = {}
@@ -222,19 +225,28 @@ class RegularizedGatedMultimodalClassifierV2(nn.Module):
         # Step 3: Modality Dropout
         h_dropped, modality_mask = self._apply_modality_dropout(h_dict, forced_mask=forced_mask)
 
-        # Step 4: Shared Gate Scorer
-        gate_input = torch.cat([h_dropped[m] for m in self.modalities], dim=-1)
-        gate_logits = self.gate_scorer(gate_input)
+        if self.use_gate:
+            # Step 4: Shared Gate Scorer
+            gate_input = torch.cat([h_dropped[m] for m in self.modalities], dim=-1)
+            gate_logits = self.gate_scorer(gate_input)
 
-        # Step 5: Gate Masking & Renormalization
-        masked_gate_logits = gate_logits.masked_fill(modality_mask == 0.0, float("-inf"))
-        gate_scores = F.softmax(masked_gate_logits, dim=-1)
+            # Step 5: Gate Masking & Renormalization
+            masked_gate_logits = gate_logits.masked_fill(modality_mask == 0.0, float("-inf"))
+            gate_scores = F.softmax(masked_gate_logits, dim=-1)
 
-        # Step 6: Dynamic Feature Blending
-        h_fused = torch.zeros_like(next(iter(h_dict.values())))
-        for idx, m in enumerate(self.modalities):
-            s_m = gate_scores[:, idx : idx + 1]
-            h_fused = h_fused + (s_m * h_dropped[m])
+            # Step 6: Dynamic Feature Blending
+            h_fused = torch.zeros_like(next(iter(h_dict.values())))
+            for idx, m in enumerate(self.modalities):
+                s_m = gate_scores[:, idx : idx + 1]
+                h_fused = h_fused + (s_m * h_dropped[m])
+        else:
+            # No-gate ablation: uniform average blending of active modalities
+            mask_sum = modality_mask.sum(dim=-1, keepdim=True).clamp(min=1.0)
+            gate_scores = modality_mask / mask_sum
+            h_sum = torch.zeros_like(next(iter(h_dict.values())))
+            for m in self.modalities:
+                h_sum = h_sum + h_dropped[m]
+            h_fused = h_sum / mask_sum
 
         fused_logits = self.fused_classifier(h_fused)
 

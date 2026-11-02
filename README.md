@@ -142,5 +142,44 @@ To apply this pipeline to your own dataset:
 
 ---
 
+
+
+---
+
+## CREMA-D Multimodal Benchmark (Audio + Video)
+
+We adapted the pipeline to **CREMA-D** (Crowd-sourced Emotional Multimodal Actors Dataset) to evaluate multimodal emotion recognition and class rebalancing under varying degrees of class imbalance without text.
+
+### Key Characteristics:
+- **Modalities**: Audio (WavLM-base-plus, layers 4-9 mean pooling, 768-d) + Video (DINOv2 with temporal mean + std pooling, 1536-d). Pretrained backbones are completely **frozen**.
+- **Emotions (6 Classes)**: anger, disgust, fear, happy, neutral, sad.
+- **Actor-Disjoint Splitting**: 91 professional actors partitioned into 64 train (5,229 clips), 14 validation (1,148 clips), and 13 test (1,065 clips) with **zero actor leakage** across splits.
+- **Imbalance Regimes**: Evaluated across 4 distinct settings:
+  - balanced: Canonical CREMA-D distribution (rho ~ 1.2, N_min=764, N_max=893).
+  - lt_rho10: Long-tailed training subset (rho = 10.0, N_min=89, N_max=893).
+  - lt_rho20: Long-tailed training subset (rho = 19.8, N_min=45, N_max=893).
+  - lt_rho50: Severe long-tailed training subset (rho = 49.6, N_min=18, N_max=893).
+
+### Benchmark Results (Test Macro-F1 +/- Std across Seeds 42, 43, 44)
+
+| Setting | rho | Best Baseline | Test Macro-F1 | RCS-Optimal | RCS Rank | Primary Finding |
+| :--- | :---: | :--- | :---: | :---: | :---: | :--- |
+| **balanced** | 1.2 | Balanced Softmax | **0.8109 +/- 0.0009** | 0.8062 +/- 0.0077 | Rank 5 of 6 | Rebalancing provides no gain when real frontiers are densely sampled. |
+| **lt_rho10** | 10.0 | RCS-Optimal | **0.7743 +/- 0.0070** | **0.7743 +/- 0.0070** | **Rank 1 of 6** | RCS-Optimal leads the benchmark, lifting tail classes. |
+| **lt_rho20** | 20.0 | Balanced Softmax | **0.7572 +/- 0.0146** | 0.7443 +/- 0.0048 | Rank 2 of 6 | RCS outperforms SMOTE/ROS; Balanced Softmax leads. |
+| **lt_rho50** | 50.0 | Balanced Softmax | **0.6711 +/- 0.0189** | 0.6667 +/- 0.0180 | Rank 2 of 6 | Extreme tail (N=18) favors analytical log-prior adjustments. |
+
+### Multimodal Gate Dynamics:
+Fusion V2 dynamically balances modalities per emotion:
+- **Video Dominant**: happy (78%-86% video gate) and disgust (56%-62% video gate), reflecting salient facial visual expressions.
+- **Audio Dominant**: anger (58%-75% audio gate) and fear (53%-58% audio gate), driven by intense acoustic pitch and loudness dynamics.
+
+### Reproduction & Documentation:
+- Run full end-to-end CREMA-D pipeline: bash run_all_cremad.sh
+- Verify zero-leakage assertions: python scripts/verify_leakage.py
+- Detailed analysis, statistical significance tests, and figures: [results_cremad/REPORT.md](results_cremad/REPORT.md)
+
+---
+
 ## 📜 License
 This project is licensed under the MIT License.

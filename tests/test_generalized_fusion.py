@@ -69,6 +69,58 @@ class TestGeneralizedFusionV2:
         z_norms = torch.norm(out["z_con"], p=2, dim=-1)
         assert torch.allclose(z_norms, torch.ones_like(z_norms), atol=1e-5)
 
+    def test_cremad_modality_dims_audio_768_video_1536(self):
+        """Verifies per-modality input dimensions with audio=768 and video=1536 for CREMA-D."""
+        batch_size = 8
+        modality_dims = {"audio": 768, "video": 1536}
+        hidden_dim = 512
+        num_classes = 6
+
+        model = RegularizedGatedMultimodalClassifierV2(
+            modalities=["audio", "video"],
+            modality_dims=modality_dims,
+            hidden_dim=hidden_dim,
+            num_classes=num_classes,
+            modality_dropout=0.15,
+            classifier_dropout=0.3,
+        )
+        model.eval()
+
+        assert model.modality_dims["audio"] == 768
+        assert model.modality_dims["video"] == 1536
+        assert model.projections["audio"][0].normalized_shape == (768,)
+        assert model.projections["video"][0].normalized_shape == (1536,)
+        assert model.projections["audio"][1].in_features == 768
+        assert model.projections["video"][1].in_features == 1536
+
+        audio_t = torch.randn(batch_size, 768)
+        video_t = torch.randn(batch_size, 1536)
+
+        out = model(audio_t, video_t)
+        assert out["logits"].shape == (batch_size, 6)
+        assert out["aux_audio_logits"].shape == (batch_size, 6)
+        assert out["aux_video_logits"].shape == (batch_size, 6)
+        assert out["fused_feat"].shape == (batch_size, 512)
+
+    def test_no_gate_ablation(self):
+        """Verifies Fusion V2 with use_gate=False performs uniform feature blending."""
+        batch_size = 4
+        model = RegularizedGatedMultimodalClassifierV2(
+            modalities=["audio", "video"],
+            modality_dims={"audio": 768, "video": 1536},
+            hidden_dim=512,
+            num_classes=6,
+            use_gate=False,
+        )
+        model.eval()
+        audio_t = torch.randn(batch_size, 768)
+        video_t = torch.randn(batch_size, 1536)
+        out = model(audio_t, video_t)
+        assert out["logits"].shape == (batch_size, 6)
+        assert out["fused_feat"].shape == (batch_size, 512)
+        # Uniform gate scores sum to 1
+        assert torch.allclose(out["gate_scores"].sum(dim=-1), torch.ones(batch_size), atol=1e-5)
+
     def test_modality_dropout_never_drops_all(self):
         """Modality dropout must guarantee at least one modality remains active for every sample."""
         batch_size = 200
